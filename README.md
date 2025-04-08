@@ -1,12 +1,12 @@
 # Exploring MPLS Networking and Configuration
-![[Pasted image 20250407152852.png]]
+![image](images/Pasted%20image%2020250407152852.png)
 ## Basic MPLS Core Configuration
 ### IPs and Loopbacks on Provider Routers
-![[Pasted image 20250407125854.png]]
+![image](images/Pasted%20image%2020250407125854.png)
 
-The first step in the configuration will be to setup the interfaces on each provider router with IPs and Loopbacks.
+The first step in the configuration is to set up the interfaces on each provider router with IP addresses and loopbacks.
 
-Example configuration for P1:
+Example configuration for `P1`:
 ```IOS
 hostname P1
 
@@ -23,23 +23,23 @@ interface GigabitEthernet1
 
 ```
 
-Checking the interfaces shows the IPs and respective interfaces configured
-![[Pasted image 20250407131053.png]]
+Verifying the interfaces shows the IP addresses assigned to each interface:
+![image](images/Pasted%20image%2020250407131053.png)
 ### Configure OSPF for Core Routers
-OPFS is configured as the MPLS Core IGP to allow the service provider routers to reach each others loopbacks and communicate with each other. It is NOT used for customer data but rather "control plane" data. The `PE` and `P` router are configured with OSPF, `CE` customer routers are not.  
+OSPF is used as the IGP (Interior Gateway Protocol) for the MPLS core. It enables the provider (`P` and `PE`) routers to **learn each other’s loopbacks and establish connectivity**. This is **strictly for control plane communication**, not for customer traffic. Only `PE` and `P` routers run OSPF; `CE` routers do not.
 
-Example configuration for PE1:
+Example configuration for `PE1`:
 ```
 router ospf 100
  network 1.1.1.1 0.0.0.0 area 0
  network 10.1.1.0 0.0.0.3 area 0
 ```
 
-Verifying the configuration; OSPF routes to all other subnets and router loopbacks in the MPLS Core have been added, pinging `PE2`'s loopback from `PE1` also succeeds.
-![[Pasted image 20250407133823.png]]
+To verify, we can confirm that OSPF routes to all loopbacks and subnets within the MPLS core are present. Pinging `PE2`'s loopback from `PE1` is successful:
+![image](images/Pasted%20image%2020250407133823.png)
 
 ### Configure MPLS on `PE` and `P` routers
-Next is the MPLS configuration which is what actually facilitates the customer data transfer. MPLS uses label switching rather than traditional IP routing which allows fast and efficient transfer of data. MPLS is configured only on P and PE routers, allowing label switching instead of traditional IP routing for fast and efficient data forwarding. CE routers do not run MPLS but exchange routing information with PE routers using BGP (or another protocol).
+The next step is configuring MPLS, which **enables label switching for customer data**. MPLS **replaces traditional IP routing** in the core for more efficient forwarding. MPLS is **only enabled on `P` and `PE` routers**; `CE` routers do not participate in MPLS. They exchange routes with `PE` routers using BGP or another protocol.
 
 `PE1` example MPLS setup:
 ```
@@ -49,20 +49,26 @@ interface GigabitEthernet2
  mpls ip
 ```
 
-We can verify the configuration by checking LDP neighbors (showing `P1` has become neighbors with `PE1` and `P2`) and the MPLS forwarding-table:
-![[Pasted image 20250407135418.png]]
+We verify the configuration by checking LDP neighbors (e.g., `P1` is now an LDP neighbor of `PE1` and `P2`) and inspecting the MPLS forwarding table:
+![image](images/Pasted%20image%2020250407135418.png)
 ## BGP for MPLS Core
-MPLS by itself only provides label switching. To actually **route customer traffic**, we need a way to exchange customer routes across the MPLS core. **BGP allows this by:**
-1. **CE to PE:** The CE router advertises its network(s) to the PE router using eBGP.
-2. **PE to PE (via MP-BGP):** The PE router **does NOT put these routes into the global BGP table**. Instead, it uses **MP-BGP (Multiprotocol BGP)** to advertise **VPN routes** between PE routers.
-3. **PE to CE:** The PE router then sends the correct routes to the CE router on the other side
-The **MPLS Core `P` routers do not run BGP at all**—only the `PE` routers do, to share customer prefixes.
+MPLS provides the label-switched forwarding plane, but we still need a routing protocol to exchange customer routes. This is where BGP comes in:
+1. **CE to PE:** Customer (`CE`) routers advertise their routes to the connected `PE` router using eBGP.
+2. **PE to PE (MP-BGP):** PE routers use **MP-BGP** (Multiprotocol BGP) to advertise customer VPN routes to other `PE` routers. These are **not** inserted into the global BGP table.
+3. **PE to CE:** The remote `PE` router then advertises the appropriate customer routes to the connected CE.
+> Note: Core P routers do not run BGP. Only PE routers participate in BGP to carry customer routes.
 ### MP-BGP setup for `PE` Routers
-![[Pasted image 20250407143736.png]]
+![image](images/Pasted%20image%2020250407143736.png)
+
 **MP-BGP (BGP with VPNv4 address family)** allows `PE` routers to **exchange customer routes** while keeping them isolated in their VRFs. It is responsible for: 
 - Exchanging **VPNv4 routes** (customer routes + VRF information).
 - Carrying **route targets (RTs)** and **route distinguishers (RDs)** to keep customer routes **logically separated**.
 - **Without MP-BGP, PE routers wouldn’t know which customer routes belong to which VPNs, breaking MPLS VPN functionality.**
+
+**MP-BGP using the VPNv4 address famil**y allows `PE` routers to **exchange customer routes** while keeping them isolated by VPN:
+- It carries **VPNv4 routes** (IPv4 + RD).
+- It includes **route distinguishers (RDs)** and **route targets (RTs)** to maintain **logical separation** of customer networks.
+- **Without MP-BGP**, `PE` routers wouldn’t know which routes belong to which customer VPNs.
 
 `PE1` Configuration:
 ```
@@ -77,14 +83,14 @@ router bgp 65000
 ```
 
 ## Customer VPN Configuration
-![[Pasted image 20250407152852.png]]
-We can now add customers to the topology. In this example I add two customers, Red and Blue, with two sites connected over the MPLS WAN. 
+![image](images/Pasted%20image%2020250407152852.png)
+Now we add customers to the MPLS topology. In this example, there are two customers: **Red** and **Blue**, each with two sites connected over the MPLS WAN.
 ### Configuring VRFs on `PE` routers
-**VRF (Virtual Routing and Forwarding)** allows multiple customers to use the same **IP address ranges** without conflicts.
-- Each **customer gets its own isolated routing table** inside the PE router.
-- **MP-BGP (VPNv4) relies on VRFs** to keep customer traffic separate.
+**VRFs (Virtual Routing and Forwarding)** create logically separate routing instances for each customer. This allows customers to use overlapping IP ranges without conflicts.
+- Each customer has **its own routing table** on the `PE` router.
+- **MP-BGP uses VRFs** to maintain route separation.
 
-First I create the VRFs on both `PE` routers:
+First, create VRFs on both PE routers:
 ```
 ip vrf Red
  rd 65000:1
@@ -97,8 +103,7 @@ ip vrf Blue
  route-target import 65000:2
 ```
 
-Then interfaces are assigned to each VRF and IP addresses add.
-`PE1` Example:
+Then assign interfaces to the appropriate VRF and configure IP addresses. `PE1` Example:
 ```
 interface GigabitEthernet1
  ip vrf forwarding Red
@@ -112,7 +117,7 @@ interface GigabitEthernet3
 ```
 
 ### Configure PE-to-CE BGP Sessions per VRF
-This step creates **per-VRF BGP sessions** between the **PE** routers and the **CE** routers, allowing them to exchange **customer-specific routing information**. Since each customer is in a separate VRF, we define a BGP session **inside that VRF**. 
+This step configures **per-VRF BGP** sessions between the **`PE`** and **`CE`** routers. Each VRF gets its own BGP session to exchange customer-specific routes.
 
 `PE1`:
 ```
@@ -131,7 +136,7 @@ router bgp 65000
 ```
 
 ## `CE` Router Configurations
-I configure the `CE` routers with hostnames, IP addresses and then BGP pairings with their respective `PE` routers. 
+`CE` routers are configured with hostnames, IP addresses, and eBGP peering toward their respective `PE` routers.
 
 Configuration for `Red-CE1`
 ```
@@ -152,23 +157,23 @@ router bgp 65020
   neighbor 192.168.2.1 allowas-in 2
 ```
 
->\***Note:** Since all CE routers in the VRF share the same AS ,the `allowas-in` command is used to override BGP's loop prevention.
+>\***Note:** Since all `CE` routers in the VRF share the same AS ,the `allowas-in` command is used to override BGP's default AS path loop prevention.
 ## Verifications 
-To make sure everything is working as it should I test to make sure both customer routers and the MPLS provider routers are all functioning as they should.
+We verify the configuration to ensure that both customer and provider routers are operating correctly.
 ### CE Routers
 #### Checking the Routing Table
-Checking the routing table on `Blue-CE1` reveals that the BGP routes have been add. I also **don't** see any routes internal to the MPLS Core or from other customers. 
-![[Pasted image 20250407165825.png]]
+On `Blue-CE1`, the routing table shows BGP-learned routes. No core MPLS routes or routes from other customers appear, which confirms isolation.
+![image](images/Pasted%20image%2020250407165825.png)
 #### Check Connectivity
-Both `traceroute` and `ping` show that `Red-CE2` has connectivity across the MPLS Core to the second site. 
-![[Pasted image 20250407170345.png]]
+`Traceroute` and `ping` confirm that `Red-CE2` can reach its remote site across the MPLS core.
+![image](images/Pasted%20image%2020250407170345.png)
 ### PE Routers
 #### Checking VRFs
-Running `sh ip vrf Red` on `PE1` verifies that all routes from the Red customer sites have successfully been added to the table
-![[Pasted image 20250407170903.png]]
+Running `show ip route vrf Red` on `PE1` confirms that routes from the Red customer are correctly installed in the VRF:
+![image](images/Pasted%20image%2020250407170903.png)
 
 #### Checking MPLS Forwarding Tables
-Output of `sh mpls forwarding-table` on `PE1`:
+`PE1` MPLS forwarding table::
 ```IOS
 Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop
 Label      Label      or Tunnel Id     Switched      interface
@@ -186,7 +191,7 @@ Label      Label      or Tunnel Id     Switched      interface
 24         No Label   172.16.1.0/24[V] 0             Gi3        192.168.1.2
 ```
 
-Output of `sh mpls forwarding-table` on `PE2`:
+`PE2` MPLS forwarding table:
 ```IOS
 Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop
 Label      Label      or Tunnel Id     Switched      interface
@@ -204,3 +209,5 @@ Label      Label      or Tunnel Id     Switched      interface
 24         No Label   172.16.12.0/24[V]   \
                                        0             Gi1        192.168.2.2
 ```
+## Full Configurations for Each Router
+to be added.
